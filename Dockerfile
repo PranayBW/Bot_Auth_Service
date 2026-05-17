@@ -16,8 +16,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code
-# The auth_service package is copied as a sub-directory so that
-# "from auth_service.xxx import yyy" imports resolve correctly.
+# The auth_service package is copied as a sub-directory and uses package imports
+# (e.g., "from auth_service.api.xxx import yyy") for this service.
 COPY . /app/auth_service
 
 # Expose the application port

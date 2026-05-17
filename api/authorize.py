@@ -1,5 +1,3 @@
-import httpx
-
 from fastapi import (
     APIRouter,
     Header,
@@ -31,6 +29,17 @@ from auth_service.security.microsoft_jwt_validator import (
 )
 
 from auth_service.config.settings import settings
+from auth_service.services.agent_selector import (
+    AgentSelectionError,
+    select_primary_agent_by_user_and_intent,
+)
+from auth_service.services.agent_tool_map import (
+    ToolNotAllowedError,
+)
+from auth_service.services.mcp_proxy import (
+    MCPProxyError,
+    login_via_proxy,
+)
 
 
 router = APIRouter()
@@ -64,22 +73,19 @@ async def authorize_intent(
         if not intent:
             return AuthorizationResponse(allowed=False, message="Unknown intent")
 
-        user_email = getattr(req, "email", None) or getattr(req, "email", None)
+        user_email = getattr(req, "email", None) or getattr(req, "userEmail", None)
         print(user_email)
         if not user_email:
             return AuthorizationResponse(allowed=False, intent=intent, message="user_email missing")
 
-        # 2) Authenticate user via MCP server (HTTP)
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                mcp_resp = await client.post(
-                    f"{settings.MCP_BASE_URL.rstrip('/')}/login",
-                    json={"user_email": user_email},
-                )
-                mcp_resp.raise_for_status()
-                mcp_data = mcp_resp.json()
-        except Exception as ex:
-            return AuthorizationResponse(allowed=False, intent=intent, message=f"MCP auth error: {ex}")
+            agent_name = await select_primary_agent_by_user_and_intent(
+                user_email=user_email,
+                intent=intent,
+            )
+            mcp_data = await login_via_proxy(user_email=user_email, agent_name=agent_name)
+        except (AgentSelectionError, ToolNotAllowedError, MCPProxyError) as ex:
+            return AuthorizationResponse(allowed=False, intent=intent, message=str(ex))
 
         if not mcp_data.get("authenticated", False):
             return AuthorizationResponse(allowed=False, intent=intent, message="User unauthorized")
@@ -154,29 +160,10 @@ async def authorize_intent(
 
     print("AAD TOKEN VALIDATED")
 
-    # ------------------------------------------------
-    # AUTHENTICATE USER EMAIL VIA MCP (HTTP)
-    # ------------------------------------------------
     user_email = getattr(req, "email", None) or getattr(req, "userEmail", None)
     if not user_email:
         # alternatively: user_email = aad_payload.get("preferred_username") or aad_payload.get("upn")
         raise HTTPException(status_code=400, detail="user_email missing in request")
-
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            mcp_resp = await client.post(
-                f"{settings.MCP_BASE_URL.rstrip('/')}/login",
-                json={"user_email": user_email},
-            )
-    except Exception as ex:
-        raise HTTPException(status_code=502, detail=f"MCP server unreachable: {ex}")
-
-    if mcp_resp.status_code != 200:
-        raise HTTPException(status_code=401, detail="User unauthorized")
-
-    mcp_data = mcp_resp.json()
-    if not mcp_data.get("authenticated", False):
-        raise HTTPException(status_code=401, detail="User unauthorized")
 
 
 
@@ -205,6 +192,26 @@ async def authorize_intent(
             allowed=False,
             message="Unknown intent"
         )
+
+    # ------------------------------------------------
+    # RESOLVE AGENT + MCP LOGIN VIA PROXY
+    # ------------------------------------------------
+
+    try:
+        agent_name = await select_primary_agent_by_user_and_intent(
+            user_email=user_email,
+            intent=intent,
+        )
+        mcp_data = await login_via_proxy(user_email=user_email, agent_name=agent_name)
+    except AgentSelectionError as ex:
+        raise HTTPException(status_code=404, detail=str(ex))
+    except ToolNotAllowedError as ex:
+        raise HTTPException(status_code=403, detail=str(ex))
+    except MCPProxyError as ex:
+        raise HTTPException(status_code=502, detail=str(ex))
+
+    if not mcp_data.get("authenticated", False):
+        raise HTTPException(status_code=401, detail="User unauthorized")
 
     # ------------------------------------------------
     # VALIDATE PERMISSIONS

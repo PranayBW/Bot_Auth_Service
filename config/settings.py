@@ -15,9 +15,9 @@ class Settings(BaseSettings):
 
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file="auth_service/.env",
         extra="ignore"
     )
-    BYPASS_AUTH: bool = True
+    BYPASS_AUTH: bool = False
 
 settings = Settings()

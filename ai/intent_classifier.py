@@ -2,9 +2,7 @@ from sklearn.metrics.pairwise import (
     cosine_similarity
 )
 
-from auth_service.ai.embedding_model import (
-    model
-)
+from auth_service.ai.embedding_model import get_model
 
 # ----------------------------------------------------
 # JD CREATE EXAMPLES
@@ -191,13 +189,21 @@ INTENT_DATASET = {
 # PRECOMPUTE EMBEDDINGS
 # ----------------------------------------------------
 
-intent_embeddings = {}
+_intent_embeddings: dict[str, object] | None = None
 
-for intent, examples in INTENT_DATASET.items():
 
-    embeddings = model.encode(examples)
+def _ensure_initialized() -> dict[str, object]:
+    global _intent_embeddings
+    if _intent_embeddings is not None:
+        return _intent_embeddings
 
-    intent_embeddings[intent] = embeddings
+    model = get_model()
+    embeddings_map: dict[str, object] = {}
+    for intent, examples in INTENT_DATASET.items():
+        embeddings_map[intent] = model.encode(examples)
+
+    _intent_embeddings = embeddings_map
+    return embeddings_map
 
 # ----------------------------------------------------
 # DETECT INTENT
@@ -205,6 +211,9 @@ for intent, examples in INTENT_DATASET.items():
 
 
 def detect_intent(text: str):
+    model = get_model()
+    intent_embeddings = _ensure_initialized()
+
     query_embedding = model.encode([text])[0]
 
     best_intent = None

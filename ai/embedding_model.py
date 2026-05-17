@@ -1,11 +1,16 @@
-from sentence_transformers import (
-    SentenceTransformer
-)
+from sentence_transformers import SentenceTransformer
 
-# ----------------------------------------------------
-# LOAD LIGHTWEIGHT MODEL
-# ----------------------------------------------------
+_model: SentenceTransformer | None = None
 
-model = SentenceTransformer(
-    "all-MiniLM-L6-v2"
-)
+
+def get_model() -> SentenceTransformer:
+    """
+    Lazily load the embedding model.
+
+    Importing the FastAPI app should not trigger network/model downloads.
+    """
+
+    global _model
+    if _model is None:
+        _model = SentenceTransformer("all-MiniLM-L6-v2")
+    return _model
