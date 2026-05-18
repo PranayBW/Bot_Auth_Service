@@ -40,6 +40,12 @@ from auth_service.services.mcp_proxy import (
     MCPProxyError,
     login_via_proxy,
 )
+from auth_service.memory.store import (
+    create_prompt,
+    create_run,
+    finish_run,
+    get_or_create_conversation,
+)
 
 
 router = APIRouter()
@@ -70,6 +76,7 @@ async def authorize_intent(
         # (Optionally you can still sanity-check req.userId here)
         print(req)
         intent = detect_intent(req.text)
+        print("DETECTED INTENT:", intent)
         if not intent:
             return AuthorizationResponse(allowed=False, message="Unknown intent")
 
@@ -84,6 +91,7 @@ async def authorize_intent(
                 intent=intent,
             )
             mcp_data = await login_via_proxy(user_email=user_email, agent_name=agent_name)
+            print("MCP PROXY LOGIN DATA:", mcp_data)
         except (AgentSelectionError, ToolNotAllowedError, MCPProxyError) as ex:
             return AuthorizationResponse(allowed=False, intent=intent, message=str(ex))
 
@@ -214,6 +222,26 @@ async def authorize_intent(
         raise HTTPException(status_code=401, detail="User unauthorized")
 
     # ------------------------------------------------
+    # AGENT MEMORY - START RUN
+    # ------------------------------------------------
+
+    conversation_id = await get_or_create_conversation(
+        user_key=user_email,
+        external_conversation_id=req.conversationId,
+        channel_id=req.channelId,
+    )
+    prompt_id = await create_prompt(
+        conversation_id=conversation_id,
+        prompt_text=req.text,
+    )
+    run_id = await create_run(
+        conversation_id=conversation_id,
+        prompt_id=prompt_id,
+        intent=intent,
+        agent=agent_name,
+    )
+
+    # ------------------------------------------------
     # VALIDATE PERMISSIONS
     # ------------------------------------------------
 
@@ -222,9 +250,14 @@ async def authorize_intent(
     # SUCCESS
     # ------------------------------------------------
 
+    await finish_run(run_id=run_id, status="succeeded")
+
     return AuthorizationResponse(
         allowed=True,
         intent=intent,
         form=INTENT_FORM_MAP.get(intent),
-        message="OK"
+        message="OK",
+        conversation_id=str(conversation_id),
+        prompt_id=str(prompt_id),
+        run_id=str(run_id),
     )

@@ -21,7 +21,7 @@ async def select_agents_by_user_and_intent(
     """
 
     url = f"{settings.MCP_BASE_URL.rstrip('/')}/fetch-agents-by-user-and-intent"
-
+    print("MCP_BASE_URL",url)
     payload = {
         "user_email": user_email,
         "intent": intent,

@@ -11,3 +11,9 @@ class AuthorizationResponse(BaseModel):
     form: Optional[str] = None
 
     message: Optional[str] = None
+
+    conversation_id: Optional[str] = None
+
+    prompt_id: Optional[str] = None
+
+    run_id: Optional[str] = None
