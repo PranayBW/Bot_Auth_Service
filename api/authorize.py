@@ -85,11 +85,21 @@ async def authorize_intent(
         if not user_email:
             return AuthorizationResponse(allowed=False, intent=intent, message="user_email missing")
 
+        if intent == "UNKOWN_INTENT":
+            return AuthorizationResponse(
+                allowed=True,
+                intent=intent,
+                form=INTENT_FORM_MAP.get(intent, "JD_MENU"),
+                message="OK",
+            )
+
         try:
             agent_name = await select_primary_agent_by_user_and_intent(
                 user_email=user_email,
                 intent=intent,
             )
+            print("SELECTED AGENT:", agent_name)
+
             mcp_data = await login_via_proxy(user_email=user_email, agent_name=agent_name)
             print("MCP PROXY LOGIN DATA:", mcp_data)
         except (AgentSelectionError, ToolNotAllowedError, MCPProxyError) as ex:
@@ -97,8 +107,8 @@ async def authorize_intent(
 
         if not mcp_data.get("authenticated", False):
             return AuthorizationResponse(allowed=False, intent=intent, message="User unauthorized")
-
-
+        
+        
 
         # permissions = get_permissions(req.userId)
         # if intent not in permissions:
@@ -113,6 +123,7 @@ async def authorize_intent(
             intent=intent,
             form=INTENT_FORM_MAP.get(intent),
             message="OK",
+            agent=agent_name
         )
 
     # ------------------------------------------------
@@ -202,6 +213,18 @@ async def authorize_intent(
         )
 
     # ------------------------------------------------
+    # UNKNOWN INTENT: RETURN MENU (NO AGENT REQUIRED)
+    # ------------------------------------------------
+
+    if intent == "UNKOWN_INTENT":
+        return AuthorizationResponse(
+            allowed=True,
+            intent=intent,
+            form=INTENT_FORM_MAP.get(intent, "JD_MENU"),
+            message="OK",
+        )
+
+    # ------------------------------------------------
     # RESOLVE AGENT + MCP LOGIN VIA PROXY
     # ------------------------------------------------
 
@@ -210,6 +233,7 @@ async def authorize_intent(
             user_email=user_email,
             intent=intent,
         )
+        print("SELECTED AGENT:", agent_name)
         mcp_data = await login_via_proxy(user_email=user_email, agent_name=agent_name)
     except AgentSelectionError as ex:
         raise HTTPException(status_code=404, detail=str(ex))
@@ -260,4 +284,5 @@ async def authorize_intent(
         conversation_id=str(conversation_id),
         prompt_id=str(prompt_id),
         run_id=str(run_id),
+        agent=agent_name
     )

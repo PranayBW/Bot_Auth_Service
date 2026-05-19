@@ -17,3 +17,5 @@ class AuthorizationResponse(BaseModel):
     prompt_id: Optional[str] = None
 
     run_id: Optional[str] = None
+
+    agent: Optional[str] = None
