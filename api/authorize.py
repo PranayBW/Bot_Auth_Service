@@ -46,6 +46,9 @@ from auth_service.memory.store import (
     finish_run,
     get_or_create_conversation,
 )
+from auth_service.services.mcp_proxy import (
+    get_semantic_jd_suggestion,
+)
 
 
 router = APIRouter()
@@ -59,15 +62,14 @@ INTENT_FORM_MAP = {
 
 @router.post(
     "/bot/jd/eligibility",
-    response_model=AuthorizationResponse
+    response_model=AuthorizationResponse,
 )
 async def authorize_intent(
     req: AuthorizationRequest,
     authorization: str = Header(None),
     x_forwarded_authorization: str = Header(None),
-    x_microsoft_appid: str = Header(None)
+    x_microsoft_appid: str = Header(None),
 ):
-    
     # ------------------------------------------------
     # LOCAL TESTING BYPASS
     # ------------------------------------------------
@@ -102,43 +104,81 @@ async def authorize_intent(
 
             mcp_data = await login_via_proxy(user_email=user_email, agent_name=agent_name)
             print("MCP PROXY LOGIN DATA:", mcp_data)
+            access_token = mcp_data.get("access_token")
+            final_response = {
+                "allowed": True,
+                "intent": intent,
+                "form": INTENT_FORM_MAP.get(intent),
+                "message": "OK",
+                "agent": agent_name,
+            }
+
+            # =========================================================
+            # SEMANTIC PREFILL FOR FETCH
+            # =========================================================
+            if intent == "JD_FETCH":
+                try:
+                    # -------------------------------------------------
+                    # CALL MCP SERVER FOR SEMANTIC SUGGESTION
+                    # -------------------------------------------------
+                    semantic_result = await get_semantic_jd_suggestion(
+                        query=req.text,
+                        token=access_token,
+                    )
+
+                    print(
+                        "SEMANTIC SUGGESTION RESULT:",
+                        semantic_result
+                    )
+
+                    # -------------------------------------------------
+                    # ADD PREFILL DATA
+                    # -------------------------------------------------
+                    final_response["semantic_prefill"] = {
+                        "enabled": semantic_result.get(
+                            "found",
+                            False
+                        ),
+                        "role": semantic_result.get(
+                            "suggested_role"
+                        ),
+                        "department": semantic_result.get(
+                            "suggested_department"
+                        ),
+                        "jd_id": semantic_result.get(
+                            "jd_id"
+                        )
+                    }
+                except Exception as e:
+                    print(
+                        "Semantic Prefill Error:",
+                        str(e)
+                    )
+
+                    final_response["semantic_prefill"] = {
+                        "enabled": False
+                    }
+
+            # =========================================================
+            # RETURN RESPONSE
+            # =========================================================
+            return final_response
+
         except (AgentSelectionError, ToolNotAllowedError, MCPProxyError) as ex:
             return AuthorizationResponse(allowed=False, intent=intent, message=str(ex))
 
-        if not mcp_data.get("authenticated", False):
-            return AuthorizationResponse(allowed=False, intent=intent, message="User unauthorized")
-        
-        
-
-        # permissions = get_permissions(req.userId)
-        # if intent not in permissions:
-        #     return AuthorizationResponse(
-        #         allowed=False,
-        #         intent=intent,
-        #         message="Permission denied",
-        #     )
-
-        return AuthorizationResponse(
-            allowed=True,
-            intent=intent,
-            form=INTENT_FORM_MAP.get(intent),
-            message="OK",
-            agent=agent_name
-        )
 
     # ------------------------------------------------
     # VALIDATE HEADERS
     # ------------------------------------------------
 
     if not authorization:
-
         raise HTTPException(
             status_code=401,
             detail="Authorization header missing"
         )
 
     if not x_forwarded_authorization:
-
         raise HTTPException(
             status_code=401,
             detail="Microsoft JWT missing"
@@ -149,7 +189,6 @@ async def authorize_intent(
     # ------------------------------------------------
 
     if x_microsoft_appid != settings.BOT_APP_ID:
-
         raise HTTPException(
             status_code=401,
             detail="Invalid Bot App ID"
@@ -203,10 +242,7 @@ async def authorize_intent(
 
     intent = detect_intent(req.text)
 
-    
-
     if not intent:
-
         return AuthorizationResponse(
             allowed=False,
             message="Unknown intent"
@@ -276,13 +312,85 @@ async def authorize_intent(
 
     await finish_run(run_id=run_id, status="succeeded")
 
-    return AuthorizationResponse(
-        allowed=True,
-        intent=intent,
-        form=INTENT_FORM_MAP.get(intent),
-        message="OK",
-        conversation_id=str(conversation_id),
-        prompt_id=str(prompt_id),
-        run_id=str(run_id),
-        agent=agent_name
-    )
+    final_response = {
+
+    "allowed": True,
+
+    "intent": intent,
+
+    "form": INTENT_FORM_MAP.get(intent),
+
+    "message": "OK",
+
+    "conversation_id": str(conversation_id),
+
+    "prompt_id": str(prompt_id),
+
+    "run_id": str(run_id),
+
+    "agent": agent_name
+    }
+
+
+# =========================================================
+# SEMANTIC PREFILL FOR JD_FETCH
+# =========================================================
+    if intent == "JD_FETCH":
+
+        try:
+
+            access_token = mcp_data.get(
+                "access_token"
+            )
+
+            semantic_result = await (
+                get_semantic_jd_suggestion(
+
+                    query=req.text,
+
+                    token=access_token
+                )
+            )
+
+            print(
+                "SEMANTIC SUGGESTION RESULT:",
+                semantic_result
+            )
+
+            final_response["semantic_prefill"] = {
+
+                "enabled": semantic_result.get(
+                    "found",
+                    False
+                ),
+
+                "role": semantic_result.get(
+                    "suggested_role"
+                ),
+
+                "department": semantic_result.get(
+                    "suggested_department"
+                ),
+
+                "jd_id": semantic_result.get(
+                    "jd_id"
+                )
+            }
+
+        except Exception as e:
+
+            print(
+                "Semantic Prefill Error:",
+                str(e)
+            )
+
+            final_response["semantic_prefill"] = {
+
+                "enabled": False
+            }
+
+
+    # =========================================================
+    # RETURN FINAL RESPONSE
+    # =========================================================
+    return final_response

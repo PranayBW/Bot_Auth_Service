@@ -19,3 +19,5 @@ class AuthorizationResponse(BaseModel):
     run_id: Optional[str] = None
 
     agent: Optional[str] = None
+
+    semantic_prefill: dict | None = None
