@@ -1,7 +1,6 @@
 import httpx
 
 from auth_service.config.settings import settings
-from auth_service.services.agent_tool_map import assert_tool_allowed
 
 
 DEFAULT_TIMEOUT_S = 15
@@ -11,23 +10,25 @@ class MCPProxyError(RuntimeError):
     pass
 
 
+class MCPProxyHTTPError(RuntimeError):
+    def __init__(self, status_code: int, detail: object):
+        super().__init__(str(detail))
+        self.status_code = int(status_code)
+        self.detail = detail
+
+
 async def request_via_proxy(
     *,
     tool_name: str,
     method: str,
     path: str,
-    agent_name: str,
     headers: dict[str, str] | None = None,
     params: dict[str, str | int | float | bool | None] | None = None,
     json: object | None = None,
 ) -> tuple[int, object]:
     """
-    Agent-aware proxy for MCP REST endpoints.
-
     Returns: (status_code, parsed_json_or_text)
     """
-
-    assert_tool_allowed(agent_name, tool_name)
 
     url = f"{settings.MCP_BASE_URL.rstrip('/')}{path}"
     try:
@@ -51,23 +52,23 @@ async def request_via_proxy(
         raise MCPProxyError(f"MCP request failed: {ex}") from ex
 
 
-async def login_via_proxy(*, user_email: str, agent_name: str) -> dict:
+async def login_via_proxy(*, user_email: str) -> dict:
     """
-    Agent-aware proxy for MCP /login.
-
-    - Enforces agent->tool policy before calling MCP.
-    - Keeps upstream endpoint unchanged (calls MCP_BASE_URL + /login internally).
+    Proxy for MCP /login.
     """
 
     status, body = await request_via_proxy(
         tool_name="login",
         method="POST",
         path="/login",
-        agent_name=agent_name,
         json={"user_email": user_email},
     )
+    print("MCP Proxy Login Response:", status, body)
     if status >= 400:
-        raise MCPProxyError(f"MCP login failed: {body}")
+        detail: object = body
+        if isinstance(body, dict) and "detail" in body:
+            detail = body["detail"]
+        raise MCPProxyHTTPError(status, detail)
     if not isinstance(body, dict):
         raise MCPProxyError("MCP login failed: invalid response")
     return body

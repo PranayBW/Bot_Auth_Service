@@ -229,7 +229,6 @@ def detect_intent(text: str):
 
         score = max(similarities)
 
-        print(f"{intent} SCORE:", score)
 
         if score > best_score:
 
@@ -237,8 +236,7 @@ def detect_intent(text: str):
 
             best_intent = intent
 
-    print("BEST INTENT:", best_intent)
-    print("BEST SCORE:", best_score)
+    
 
     # ------------------------------------------------
     # CONFIDENCE THRESHOLD

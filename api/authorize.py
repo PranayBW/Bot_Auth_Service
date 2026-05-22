@@ -3,6 +3,7 @@ from fastapi import (
     Header,
     HTTPException
 )
+from fastapi.responses import JSONResponse
 
 from auth_service.model.request_model import (
     AuthorizationRequest
@@ -38,6 +39,7 @@ from auth_service.services.agent_tool_map import (
 )
 from auth_service.services.mcp_proxy import (
     MCPProxyError,
+    MCPProxyHTTPError,
     login_via_proxy,
 )
 from auth_service.memory.store import (
@@ -58,6 +60,25 @@ INTENT_FORM_MAP = {
     "JD_FETCH": "JD_FETCH_FORM",
     "UNKOWN_INTENT": "JD_MENU",
 }
+
+
+def _unauthorized_payload(*, intent: str | None) -> dict:
+    form = INTENT_FORM_MAP.get(intent) if intent else None
+    return {
+        "allowed": False,
+        "intent": intent,
+        "form": form,
+        "message": None,
+        "conversation_id": None,
+        "prompt_id": None,
+        "run_id": None,
+        "semantic_prefill": {
+            "enabled": False,
+            "role": None,
+            "department": None,
+            "jd_id": None,
+        },
+    }
 
 
 @router.post(
@@ -96,14 +117,18 @@ async def authorize_intent(
             )
 
         try:
+            mcp_data = await login_via_proxy(user_email=user_email)
+            print("MCP PROXY LOGIN DATA:", mcp_data)
+            if not mcp_data.get("authenticated", False):
+                payload = _unauthorized_payload(intent=intent)
+                payload["message"] = "User unauthorized"
+                return JSONResponse(status_code=401, content=payload)
+
             agent_name = await select_primary_agent_by_user_and_intent(
                 user_email=user_email,
                 intent=intent,
             )
             print("SELECTED AGENT:", agent_name)
-
-            mcp_data = await login_via_proxy(user_email=user_email, agent_name=agent_name)
-            print("MCP PROXY LOGIN DATA:", mcp_data)
             access_token = mcp_data.get("access_token")
             final_response = {
                 "allowed": True,
@@ -164,8 +189,17 @@ async def authorize_intent(
             # =========================================================
             return final_response
 
-        except (AgentSelectionError, ToolNotAllowedError, MCPProxyError) as ex:
-            return AuthorizationResponse(allowed=False, intent=intent, message=str(ex))
+        except AgentSelectionError as ex:
+            # Surface MCP-provided message as-is (FastAPI wraps it under {"detail": ...}).
+            raise HTTPException(status_code=401, detail=str(ex))
+        except MCPProxyHTTPError as ex:
+            if ex.status_code == 401:
+                payload = _unauthorized_payload(intent=intent)
+                payload["message"] = ex.detail
+                return JSONResponse(status_code=401, content=payload)
+            raise HTTPException(status_code=ex.status_code, detail=ex.detail)
+        except MCPProxyError as ex:
+            raise HTTPException(status_code=502, detail=str(ex))
 
 
     # ------------------------------------------------
@@ -265,21 +299,31 @@ async def authorize_intent(
     # ------------------------------------------------
 
     try:
+        mcp_data = await login_via_proxy(user_email=user_email)
+        if not mcp_data.get("authenticated", False):
+            payload = _unauthorized_payload(intent=intent)
+            payload["message"] = "User unauthorized"
+            return JSONResponse(status_code=401, content=payload)
+
         agent_name = await select_primary_agent_by_user_and_intent(
             user_email=user_email,
             intent=intent,
         )
         print("SELECTED AGENT:", agent_name)
-        mcp_data = await login_via_proxy(user_email=user_email, agent_name=agent_name)
     except AgentSelectionError as ex:
-        raise HTTPException(status_code=404, detail=str(ex))
+        payload = _unauthorized_payload(intent=intent)
+        payload["message"] = str(ex)
+        return JSONResponse(status_code=401, content=payload)
     except ToolNotAllowedError as ex:
         raise HTTPException(status_code=403, detail=str(ex))
+    except MCPProxyHTTPError as ex:
+        if ex.status_code == 401:
+            payload = _unauthorized_payload(intent=intent)
+            payload["message"] = ex.detail
+            return JSONResponse(status_code=401, content=payload)
+        raise HTTPException(status_code=ex.status_code, detail=ex.detail)
     except MCPProxyError as ex:
         raise HTTPException(status_code=502, detail=str(ex))
-
-    if not mcp_data.get("authenticated", False):
-        raise HTTPException(status_code=401, detail="User unauthorized")
 
     # ------------------------------------------------
     # AGENT MEMORY - START RUN

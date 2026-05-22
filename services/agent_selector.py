@@ -21,7 +21,6 @@ async def select_agents_by_user_and_intent(
     """
 
     url = f"{settings.MCP_BASE_URL.rstrip('/')}/fetch-agents-by-user-and-intent"
-    print("MCP_BASE_URL",url)
     payload = {
         "user_email": user_email,
         "intent": intent,
@@ -30,8 +29,22 @@ async def select_agents_by_user_and_intent(
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+
+            content_type = resp.headers.get("content-type", "")
+            if "application/json" in content_type.lower():
+                body: object = resp.json()
+            else:
+                body = resp.text
+
+            if resp.status_code >= 400:
+                if isinstance(body, dict) and "detail" in body:
+                    raise AgentSelectionError(str(body["detail"]))
+                raise AgentSelectionError(str(body))
+
+            if not isinstance(body, dict):
+                raise AgentSelectionError("Unexpected MCP response format")
+
+            data = body
     except Exception as ex:
         raise AgentSelectionError(f"MCP agent selection failed: {ex}") from ex
 
@@ -53,7 +66,9 @@ async def select_primary_agent_by_user_and_intent(
     )
 
     if not data.get("found"):
-        raise AgentSelectionError(data.get("message", "No agent found"))
+        if "detail" in data and data.get("detail"):
+            raise AgentSelectionError(str(data.get("detail")))
+        raise AgentSelectionError(str(data.get("message", "No agent found")))
 
     agents = data.get("agents") or []
     if not agents:
