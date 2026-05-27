@@ -109,3 +109,42 @@ async def get_semantic_jd_suggestion(
         response.raise_for_status()
 
         return response.json()
+
+async def query_role_department(
+    *,
+    prompt: str,
+    intent: str,
+    token: str
+):
+    """
+    Proxy for MCP /query endpoint.
+    """
+
+    url = (
+        f"{settings.MCP_BASE_URL}"
+        "/query"
+    )
+
+    headers = {
+        "Authorization": token,
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "prompt": prompt,
+        "intent": intent
+    }
+
+    async with httpx.AsyncClient(
+        timeout=30
+    ) as client:
+
+        response = await client.post(
+            url,
+            json=payload,
+            headers=headers
+        )
+
+        response.raise_for_status()
+
+        return response.json()

@@ -211,6 +211,33 @@ def _ensure_initialized() -> dict[str, object]:
 
 
 def detect_intent(text: str):
+
+    text_lower = text.lower()
+
+    if any(word in text_lower for word in [
+        "create",
+        "generate",
+        "prepare",
+        "draft",
+        "new jd",
+        "hire",
+        "hiring",
+    ]):
+        return "JD_CREATE"
+
+    if any(word in text_lower for word in [
+        "fetch",
+        "get",
+        "show",
+        "find",
+        "retrieve",
+        "search",
+        "list",
+    ]):
+        return "JD_FETCH"
+
+
+
     model = get_model()
     intent_embeddings = _ensure_initialized()
 

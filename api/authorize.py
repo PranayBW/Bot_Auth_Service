@@ -41,6 +41,7 @@ from auth_service.services.mcp_proxy import (
     MCPProxyError,
     MCPProxyHTTPError,
     login_via_proxy,
+    query_role_department,
 )
 from auth_service.memory.store import (
     create_prompt,
@@ -99,6 +100,7 @@ async def authorize_intent(
         # (Optionally you can still sanity-check req.userId here)
         print(req)
         intent = detect_intent(req.text)
+        
         print("DETECTED INTENT:", intent)
         if not intent:
             return AuthorizationResponse(allowed=False, message="Unknown intent")
@@ -130,6 +132,13 @@ async def authorize_intent(
             )
             print("SELECTED AGENT:", agent_name)
             access_token = mcp_data.get("access_token")
+
+            role_dept_response =  await query_role_department(
+            prompt=req.text,
+            intent=intent,
+            token=access_token  # Assuming you have the access_token available
+        )
+            
             final_response = {
                 "allowed": True,
                 "intent": intent,
@@ -137,52 +146,8 @@ async def authorize_intent(
                 "message": "OK",
                 "agent": agent_name,
             }
+            final_response["semantic_prefill"] = role_dept_response
 
-            # =========================================================
-            # SEMANTIC PREFILL FOR FETCH
-            # =========================================================
-            if intent == "JD_FETCH":
-                try:
-                    # -------------------------------------------------
-                    # CALL MCP SERVER FOR SEMANTIC SUGGESTION
-                    # -------------------------------------------------
-                    semantic_result = await get_semantic_jd_suggestion(
-                        query=req.text,
-                        token=access_token,
-                    )
-
-                    print(
-                        "SEMANTIC SUGGESTION RESULT:",
-                        semantic_result
-                    )
-
-                    # -------------------------------------------------
-                    # ADD PREFILL DATA
-                    # -------------------------------------------------
-                    final_response["semantic_prefill"] = {
-                        "enabled": semantic_result.get(
-                            "found",
-                            False
-                        ),
-                        "role": semantic_result.get(
-                            "suggested_role"
-                        ),
-                        "department": semantic_result.get(
-                            "suggested_department"
-                        ),
-                        "jd_id": semantic_result.get(
-                            "jd_id"
-                        )
-                    }
-                except Exception as e:
-                    print(
-                        "Semantic Prefill Error:",
-                        str(e)
-                    )
-
-                    final_response["semantic_prefill"] = {
-                        "enabled": False
-                    }
 
             # =========================================================
             # RETURN RESPONSE
@@ -353,6 +318,11 @@ async def authorize_intent(
     # ------------------------------------------------
     # SUCCESS
     # ------------------------------------------------
+    role_dept_response =  await query_role_department(
+            prompt=req.text,
+            intent=intent, 
+            token=access_token
+    )
 
     await finish_run(run_id=run_id, status="succeeded")
 
@@ -374,64 +344,7 @@ async def authorize_intent(
 
     "agent": agent_name
     }
-
-
-# =========================================================
-# SEMANTIC PREFILL FOR JD_FETCH
-# =========================================================
-    if intent == "JD_FETCH":
-
-        try:
-
-            access_token = mcp_data.get(
-                "access_token"
-            )
-
-            semantic_result = await (
-                get_semantic_jd_suggestion(
-
-                    query=req.text,
-
-                    token=access_token
-                )
-            )
-
-            print(
-                "SEMANTIC SUGGESTION RESULT:",
-                semantic_result
-            )
-
-            final_response["semantic_prefill"] = {
-
-                "enabled": semantic_result.get(
-                    "found",
-                    False
-                ),
-
-                "role": semantic_result.get(
-                    "suggested_role"
-                ),
-
-                "department": semantic_result.get(
-                    "suggested_department"
-                ),
-
-                "jd_id": semantic_result.get(
-                    "jd_id"
-                )
-            }
-
-        except Exception as e:
-
-            print(
-                "Semantic Prefill Error:",
-                str(e)
-            )
-
-            final_response["semantic_prefill"] = {
-
-                "enabled": False
-            }
+    final_response["semantic_prefill"] = role_dept_response
 
 
     # =========================================================
