@@ -1,7 +1,8 @@
+from fastapi.responses import JSONResponse
 import httpx
 
 from auth_service.config.settings import settings
-
+from fastapi import  HTTPException
 
 DEFAULT_TIMEOUT_S = 15
 
@@ -148,3 +149,42 @@ async def query_role_department(
         response.raise_for_status()
 
         return response.json()
+    
+
+async def _forward(
+    *,
+    method: str,
+    path: str,
+    authorization: str,
+    params: dict | None = None,
+    json: object | None = None,
+) -> JSONResponse:
+    url = f"{settings.MCP_BASE_URL.rstrip('/')}{path}"
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.request(
+            method=method,
+            url=url,
+            headers={"Authorization": authorization},
+            params=params,
+            json=json,
+        )
+    content_type = resp.headers.get("content-type", "")
+    body = resp.json() if "application/json" in content_type.lower() else resp.text
+    return JSONResponse(status_code=resp.status_code, content=body)
+
+
+
+async def job_description(
+    role_id: int,
+    department_id: int,
+    authorization: str,
+):
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header missing")
+
+    return await _forward(
+        method="GET",
+        path="/job-description",
+        authorization=authorization,
+        params={"role_id": role_id, "department_id": department_id},
+    )

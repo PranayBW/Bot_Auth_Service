@@ -21,3 +21,11 @@ class AuthorizationResponse(BaseModel):
     agent: Optional[str] = None
 
     semantic_prefill: dict | None = None
+
+    job_description : dict | None = None
+
+class GuardrailResponse(BaseModel):
+    allowed: bool
+    capability: str | None = None
+    confidence: float = 0.0
+    reason: str | None = None

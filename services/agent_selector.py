@@ -64,13 +64,13 @@ async def select_primary_agent_by_user_and_intent(
         user_email=user_email,
         intent=intent,
     )
-
-    if not data.get("found"):
+    print("MCP Agent Selection Response:", data)
+    if not data.get("data").get("found"):
         if "detail" in data and data.get("detail"):
             raise AgentSelectionError(str(data.get("detail")))
         raise AgentSelectionError(str(data.get("message", "No agent found")))
 
-    agents = data.get("agents") or []
+    agents = data.get("data").get("agents") or []
     if not agents:
         raise AgentSelectionError("No agent found")
 
