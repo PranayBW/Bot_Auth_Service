@@ -1,7 +1,8 @@
 from fastapi import (
     APIRouter,
     Header,
-    HTTPException
+    HTTPException,
+    Body
 )
 from fastapi.responses import JSONResponse
 import json
@@ -28,6 +29,7 @@ from auth_service.ai.intent_registry import (
     has_domain_signal,
 )
 
+from auth_service.security.i_gaurdrails import capability_guardrail
 from auth_service.services.permission_service import (
     get_permissions
 )
@@ -51,7 +53,9 @@ from auth_service.services.agent_tool_map import (
 from auth_service.services.mcp_proxy import (
     MCPProxyError,
     MCPProxyHTTPError,
+    job_description,
     login_via_proxy,
+    query_role_department,
 )
 from auth_service.memory.store import (
     create_prompt,
@@ -131,6 +135,7 @@ async def authorize_intent(
         # (Optionally you can still sanity-check req.userId here)
         print(req)
         intent = await _detect_intent_with_fallback(req.text)
+        intent = detect_intent(req.text)
         
         print("DETECTED INTENT:", intent)
         if not intent:
@@ -150,19 +155,56 @@ async def authorize_intent(
             )
 
         try:
-            mcp_data = await login_via_proxy(user_email=user_email)
-            print("MCP PROXY LOGIN DATA:", mcp_data)
-            if not mcp_data.get("authenticated", False):
-                payload = _unauthorized_payload(intent=intent)
+            mcp_data = await login_via_proxy(
+                user_email=user_email
+            )
+
+            print(
+                "MCP PROXY LOGIN DATA:",
+                mcp_data
+            )
+            print("mcp authnenticated:", mcp_data.get("data").get("authenticated" ))
+            if (
+                not mcp_data.get("success", True)
+                or
+                not mcp_data.get("data", {}).get("authenticated", True)
+            ):
+
+                payload = _unauthorized_payload(
+                    intent=intent
+                )
+
                 payload["message"] = "User unauthorized"
-                return JSONResponse(status_code=401, content=payload)
+
+                return JSONResponse(
+                    status_code=401,
+                    content=payload
+                )
 
             agent_name = await select_primary_agent_by_user_and_intent(
                 user_email=user_email,
                 intent=intent,
             )
             print("SELECTED AGENT:", agent_name)
-            access_token = mcp_data.get("access_token")
+            access_token = mcp_data.get("data").get("access_token")
+
+            role_dept_response =  await query_role_department(
+            prompt=req.text,
+            intent=intent,
+            token=access_token  # Assuming you have the access_token available
+            )
+            print("ROLE AND DEPARTMENT RESPONSE:", role_dept_response)
+            try:
+                role_id = int(role_dept_response.get("role", {}).get("record").get("id"))
+                print("ROLE ID:", role_id)
+            except (TypeError, ValueError):
+                role_id = None
+            try:
+                department_id = int(role_dept_response.get("department", {}).get("record").get("id"))
+                print("DEPARTMENT ID:", department_id)
+            except (TypeError, ValueError):
+                department_id = None
+            
             final_response = {
                 "allowed": True,
                 "intent": intent,
@@ -171,51 +213,17 @@ async def authorize_intent(
                 "agent": agent_name,
             }
 
-            # =========================================================
-            # SEMANTIC PREFILL FOR FETCH
-            # =========================================================
-            if intent == "JD_FETCH":
-                try:
-                    # -------------------------------------------------
-                    # CALL MCP SERVER FOR SEMANTIC SUGGESTION
-                    # -------------------------------------------------
-                    semantic_result = await get_semantic_jd_suggestion(
-                        query=req.text,
-                        token=access_token,
-                    )
 
-                    print(
-                        "SEMANTIC SUGGESTION RESULT:",
-                        semantic_result
-                    )
+            jd_exist = await  job_description(role_id, department_id,access_token)
+            json_jd = json.loads(jd_exist.body)
+            if json_jd.get("data").get("found"):
+                final_response["job_description"] = json_jd.get("data").get("data")
 
-                    # -------------------------------------------------
-                    # ADD PREFILL DATA
-                    # -------------------------------------------------
-                    final_response["semantic_prefill"] = {
-                        "enabled": semantic_result.get(
-                            "found",
-                            False
-                        ),
-                        "role": semantic_result.get(
-                            "suggested_role"
-                        ),
-                        "department": semantic_result.get(
-                            "suggested_department"
-                        ),
-                        "jd_id": semantic_result.get(
-                            "jd_id"
-                        )
-                    }
-                except Exception as e:
-                    print(
-                        "Semantic Prefill Error:",
-                        str(e)
-                    )
 
-                    final_response["semantic_prefill"] = {
-                        "enabled": False
-                    }
+            
+            
+            final_response["semantic_prefill"] = role_dept_response
+
 
             # =========================================================
             # RETURN RESPONSE
@@ -390,22 +398,11 @@ async def authorize_intent(
     # ------------------------------------------------
     # SUCCESS
     # ------------------------------------------------
-    role_dept_response = await query_role_department(
-        prompt=req.text,
-        intent=intent, 
-        token=access_token
+    role_dept_response =  await query_role_department(
+            prompt=req.text,
+            intent=intent, 
+            token=access_token
     )
-
-    try:
-        role_id = int(role_dept_response.get("role", {}).get("record").get("id"))
-        print("ROLE ID:", role_id)
-    except (TypeError, ValueError, AttributeError):
-        role_id = None
-    try:
-        department_id = int(role_dept_response.get("department", {}).get("record").get("id"))
-        print("DEPARTMENT ID:", department_id)
-    except (TypeError, ValueError, AttributeError):
-        department_id = None
 
     await finish_run(run_id=run_id, status="succeeded")
 
@@ -419,18 +416,30 @@ async def authorize_intent(
         "run_id": str(run_id),
         "agent": agent_name
     }
-
-    try:
-        jd_exist = await job_description(role_id, department_id, access_token)
-        json_jd = json.loads(jd_exist.body)
-        if json_jd.get("data", {}).get("found"):
-            final_response["job_description"] = json_jd.get("data", {}).get("data")
-    except Exception as ex:
-        print(f"Error fetching existing job description: {ex}")
-
     final_response["semantic_prefill"] = role_dept_response
+
 
     # =========================================================
     # RETURN FINAL RESPONSE
     # =========================================================
     return final_response
+
+# @router.post("/guardrail")
+# async def guardrail_router(
+#     query: str = Body(...)
+# ):
+#     guardrail = await capability_guardrail(query)
+
+#     if not guardrail.allowed:
+#         return {
+#             "status": False,
+#             "message": (
+#                 "I can help with recruitment and talent management activities."
+#             )
+#         }
+
+#     return {
+#         "status": True,
+#         "capability": guardrail.capability,
+#         "confidence": guardrail.confidence
+#     }
