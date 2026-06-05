@@ -19,7 +19,7 @@ from auth_service.ai.intent_classifier import (
     detect_intent
 )
 
-from auth_service.security.i_gaurdrails import capability_guardrail
+# from auth_service.security.i_gaurdrails import capability_guardrail
 from auth_service.services.permission_service import (
     get_permissions
 )
