@@ -4,6 +4,8 @@ from fastapi import (
     HTTPException
 )
 from fastapi.responses import JSONResponse
+import json
+import re
 
 from auth_service.model.request_model import (
     AuthorizationRequest
@@ -15,6 +17,15 @@ from auth_service.model.response_model import (
 
 from auth_service.ai.intent_classifier import (
     detect_intent
+)
+from auth_service.ai.ollama_intent_classifier import (
+    detect_intent_with_ollama,
+)
+from auth_service.ai.intent_registry import (
+    UNKNOWN_INTENT,
+    get_clear_patterns,
+    get_form_for_intent,
+    has_domain_signal,
 )
 
 from auth_service.services.permission_service import (
@@ -55,15 +66,36 @@ from auth_service.services.mcp_proxy import (
 
 router = APIRouter()
 
-INTENT_FORM_MAP = {
-    "JD_CREATE": "JD_CREAT_FORM",
-    "JD_FETCH": "JD_FETCH_FORM",
-    "UNKOWN_INTENT": "JD_MENU",
-}
+def _should_use_ollama_for_intent(text: str, intent: str) -> bool:
+    if not settings.OLLAMA_ENABLED:
+        return False
+
+    if intent == UNKNOWN_INTENT:
+        return has_domain_signal(text)
+
+    text_lower = text.lower().strip()
+    if any(re.search(pattern, text_lower) for pattern in get_clear_patterns()):
+        return False
+
+    words = re.findall(r"[a-zA-Z0-9]+", text_lower)
+
+    return len(words) >= 4 and has_domain_signal(text)
+
+
+async def _detect_intent_with_fallback(text: str) -> str:
+    intent = detect_intent(text)
+
+    if _should_use_ollama_for_intent(text, intent):
+        ollama_intent = await detect_intent_with_ollama(text)
+        if ollama_intent != UNKNOWN_INTENT:
+            print("OLLAMA DETECTED INTENT:", ollama_intent)
+            return ollama_intent
+
+    return intent
 
 
 def _unauthorized_payload(*, intent: str | None) -> dict:
-    form = INTENT_FORM_MAP.get(intent) if intent else None
+    form = get_form_for_intent(intent)
     return {
         "allowed": False,
         "intent": intent,
@@ -98,7 +130,8 @@ async def authorize_intent(
         # Skip all token/header validation for local testing
         # (Optionally you can still sanity-check req.userId here)
         print(req)
-        intent = detect_intent(req.text)
+        intent = await _detect_intent_with_fallback(req.text)
+        
         print("DETECTED INTENT:", intent)
         if not intent:
             return AuthorizationResponse(allowed=False, message="Unknown intent")
@@ -108,11 +141,11 @@ async def authorize_intent(
         if not user_email:
             return AuthorizationResponse(allowed=False, intent=intent, message="user_email missing")
 
-        if intent == "UNKOWN_INTENT":
+        if intent == UNKNOWN_INTENT:
             return AuthorizationResponse(
                 allowed=True,
                 intent=intent,
-                form=INTENT_FORM_MAP.get(intent, "JD_MENU"),
+                form=get_form_for_intent(intent),
                 message="OK",
             )
 
@@ -133,7 +166,7 @@ async def authorize_intent(
             final_response = {
                 "allowed": True,
                 "intent": intent,
-                "form": INTENT_FORM_MAP.get(intent),
+                "form": get_form_for_intent(intent),
                 "message": "OK",
                 "agent": agent_name,
             }
@@ -274,7 +307,7 @@ async def authorize_intent(
     # DETECT INTENT
     # ------------------------------------------------
 
-    intent = detect_intent(req.text)
+    intent = await _detect_intent_with_fallback(req.text)
 
     if not intent:
         return AuthorizationResponse(
@@ -286,11 +319,11 @@ async def authorize_intent(
     # UNKNOWN INTENT: RETURN MENU (NO AGENT REQUIRED)
     # ------------------------------------------------
 
-    if intent == "UNKOWN_INTENT":
+    if intent == UNKNOWN_INTENT:
         return AuthorizationResponse(
             allowed=True,
             intent=intent,
-            form=INTENT_FORM_MAP.get(intent, "JD_MENU"),
+            form=get_form_for_intent(intent),
             message="OK",
         )
 
@@ -300,7 +333,10 @@ async def authorize_intent(
 
     try:
         mcp_data = await login_via_proxy(user_email=user_email)
-        if not mcp_data.get("authenticated", False):
+        if (
+            not mcp_data.get("success", True)
+            or not mcp_data.get("data", {}).get("authenticated", False)
+        ):
             payload = _unauthorized_payload(intent=intent)
             payload["message"] = "User unauthorized"
             return JSONResponse(status_code=401, content=payload)
@@ -310,6 +346,7 @@ async def authorize_intent(
             intent=intent,
         )
         print("SELECTED AGENT:", agent_name)
+        access_token = mcp_data.get("data", {}).get("access_token")
     except AgentSelectionError as ex:
         payload = _unauthorized_payload(intent=intent)
         payload["message"] = str(ex)
@@ -353,86 +390,45 @@ async def authorize_intent(
     # ------------------------------------------------
     # SUCCESS
     # ------------------------------------------------
+    role_dept_response = await query_role_department(
+        prompt=req.text,
+        intent=intent, 
+        token=access_token
+    )
+
+    try:
+        role_id = int(role_dept_response.get("role", {}).get("record").get("id"))
+        print("ROLE ID:", role_id)
+    except (TypeError, ValueError, AttributeError):
+        role_id = None
+    try:
+        department_id = int(role_dept_response.get("department", {}).get("record").get("id"))
+        print("DEPARTMENT ID:", department_id)
+    except (TypeError, ValueError, AttributeError):
+        department_id = None
 
     await finish_run(run_id=run_id, status="succeeded")
 
     final_response = {
-
-    "allowed": True,
-
-    "intent": intent,
-
-    "form": INTENT_FORM_MAP.get(intent),
-
-    "message": "OK",
-
-    "conversation_id": str(conversation_id),
-
-    "prompt_id": str(prompt_id),
-
-    "run_id": str(run_id),
-
-    "agent": agent_name
+        "allowed": True,
+        "intent": intent,
+        "form": get_form_for_intent(intent),
+        "message": "OK",
+        "conversation_id": str(conversation_id),
+        "prompt_id": str(prompt_id),
+        "run_id": str(run_id),
+        "agent": agent_name
     }
 
+    try:
+        jd_exist = await job_description(role_id, department_id, access_token)
+        json_jd = json.loads(jd_exist.body)
+        if json_jd.get("data", {}).get("found"):
+            final_response["job_description"] = json_jd.get("data", {}).get("data")
+    except Exception as ex:
+        print(f"Error fetching existing job description: {ex}")
 
-# =========================================================
-# SEMANTIC PREFILL FOR JD_FETCH
-# =========================================================
-    if intent == "JD_FETCH":
-
-        try:
-
-            access_token = mcp_data.get(
-                "access_token"
-            )
-
-            semantic_result = await (
-                get_semantic_jd_suggestion(
-
-                    query=req.text,
-
-                    token=access_token
-                )
-            )
-
-            print(
-                "SEMANTIC SUGGESTION RESULT:",
-                semantic_result
-            )
-
-            final_response["semantic_prefill"] = {
-
-                "enabled": semantic_result.get(
-                    "found",
-                    False
-                ),
-
-                "role": semantic_result.get(
-                    "suggested_role"
-                ),
-
-                "department": semantic_result.get(
-                    "suggested_department"
-                ),
-
-                "jd_id": semantic_result.get(
-                    "jd_id"
-                )
-            }
-
-        except Exception as e:
-
-            print(
-                "Semantic Prefill Error:",
-                str(e)
-            )
-
-            final_response["semantic_prefill"] = {
-
-                "enabled": False
-            }
-
+    final_response["semantic_prefill"] = role_dept_response
 
     # =========================================================
     # RETURN FINAL RESPONSE

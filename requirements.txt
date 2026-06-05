@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+httpx
+python-dotenv
+pydantic
+asyncpg
+pydantic-settings
+botbuilder-core
+botbuilder-schema
+botbuilder-integration-aiohttp
+aiohttp
+requests
+python-jose[cryptography]
+scikit-learn
+sentence-transformers
