@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://106.51.106.43:11435"
     OLLAMA_MODEL: str = "qwen2.5:7b"
     OLLAMA_FALLBACK_MODEL: str = "mistral:latest"
-    OLLAMA_TIMEOUT_SECONDS: float = 20.0
+    OLLAMA_TIMEOUT_SECONDS: float = 30.0
 
 
     model_config = SettingsConfigDict(

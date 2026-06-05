@@ -29,7 +29,6 @@ from auth_service.ai.intent_registry import (
     has_domain_signal,
 )
 
-from auth_service.security.i_gaurdrails import capability_guardrail
 from auth_service.services.permission_service import (
     get_permissions
 )
@@ -135,7 +134,6 @@ async def authorize_intent(
         # (Optionally you can still sanity-check req.userId here)
         print(req)
         intent = await _detect_intent_with_fallback(req.text)
-        intent = detect_intent(req.text)
         
         print("DETECTED INTENT:", intent)
         if not intent:
@@ -195,14 +193,16 @@ async def authorize_intent(
             )
             print("ROLE AND DEPARTMENT RESPONSE:", role_dept_response)
             try:
-                role_id = int(role_dept_response.get("role", {}).get("record").get("id"))
+                role_data = role_dept_response.get("role") or {}
+                role_id = int(role_data.get("record", {}).get("id"))
                 print("ROLE ID:", role_id)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, AttributeError):
                 role_id = None
             try:
-                department_id = int(role_dept_response.get("department", {}).get("record").get("id"))
+                dept_data = role_dept_response.get("department") or {}
+                department_id = int(dept_data.get("record", {}).get("id"))
                 print("DEPARTMENT ID:", department_id)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, AttributeError):
                 department_id = None
             
             final_response = {
@@ -213,11 +213,13 @@ async def authorize_intent(
                 "agent": agent_name,
             }
 
-
-            jd_exist = await  job_description(role_id, department_id,access_token)
-            json_jd = json.loads(jd_exist.body)
-            if json_jd.get("data").get("found"):
-                final_response["job_description"] = json_jd.get("data").get("data")
+            try:
+                jd_exist = await job_description(role_id, department_id, access_token)
+                json_jd = json.loads(jd_exist.body)
+                if json_jd.get("data", {}).get("found"):
+                    final_response["job_description"] = json_jd.get("data", {}).get("data")
+            except Exception as ex:
+                print("Error checking job description:", ex)
 
 
             
@@ -398,11 +400,24 @@ async def authorize_intent(
     # ------------------------------------------------
     # SUCCESS
     # ------------------------------------------------
-    role_dept_response =  await query_role_department(
-            prompt=req.text,
-            intent=intent, 
-            token=access_token
+    role_dept_response = await query_role_department(
+        prompt=req.text,
+        intent=intent, 
+        token=access_token
     )
+    print("ROLE AND DEPARTMENT RESPONSE:", role_dept_response)
+    try:
+        role_data = role_dept_response.get("role") or {}
+        role_id = int(role_data.get("record", {}).get("id"))
+        print("ROLE ID:", role_id)
+    except (TypeError, ValueError, AttributeError):
+        role_id = None
+    try:
+        dept_data = role_dept_response.get("department") or {}
+        department_id = int(dept_data.get("record", {}).get("id"))
+        print("DEPARTMENT ID:", department_id)
+    except (TypeError, ValueError, AttributeError):
+        department_id = None
 
     await finish_run(run_id=run_id, status="succeeded")
 
@@ -416,6 +431,15 @@ async def authorize_intent(
         "run_id": str(run_id),
         "agent": agent_name
     }
+
+    try:
+        jd_exist = await job_description(role_id, department_id, access_token)
+        json_jd = json.loads(jd_exist.body)
+        if json_jd.get("data", {}).get("found"):
+            final_response["job_description"] = json_jd.get("data", {}).get("data")
+    except Exception as ex:
+        print("Error checking job description:", ex)
+
     final_response["semantic_prefill"] = role_dept_response
 
 
