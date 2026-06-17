@@ -29,3 +29,15 @@ class GuardrailResponse(BaseModel):
     capability: str | None = None
     confidence: float = 0.0
     reason: str | None = None
+
+class CapabilityResponse(BaseModel):
+
+    classification: str
+
+    capability: str | None = None
+
+    confidence: float = 0.0
+
+    message: str | None = None
+
+    available_capabilities: list[str] = []

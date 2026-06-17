@@ -18,3 +18,4 @@ class AuthorizationRequest(BaseModel):
     serviceUrl: Optional[str] = None
 
     text: str
+

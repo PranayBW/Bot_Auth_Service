@@ -3,186 +3,194 @@ from sklearn.metrics.pairwise import (
 )
 
 from auth_service.ai.embedding_model import get_model
+from auth_service.services.intent_example_service import IntentDatasetService
 
 # ----------------------------------------------------
 # JD CREATE EXAMPLES
 # ----------------------------------------------------
 
-JD_CREATE_EXAMPLES = [
+# JD_CREATE_EXAMPLES = [
 
-    "create jd",
-    "create a jd",
-    "generate jd",
-    "new jd",
-    "create job description",
-    "generate job description",
+#     "create jd",
+#     "create a jd",
+#     "generate jd",
+#     "new jd",
+#     "create job description",
+#     "generate job description",
 
-    "we need a react developer",
-    "hire a python developer",
-    "need a backend engineer",
-    "open a new position",
-    "start hiring for java developer",
+#     "we need a react developer",
+#     "hire a python developer",
+#     "need a backend engineer",
+#     "open a new position",
+#     "start hiring for java developer",
 
-    "create a jd for react dev",
-    "prepare jd for software engineer",
-    "draft a jd for python developer",
+#     "create a jd for react dev",
+#     "prepare jd for software engineer",
+#     "draft a jd for python developer",
 
-    "create a jd for react dev in it department",
-    "create a jd for software developer role",
-    "generate jd for backend developer",
+#     "create a jd for react dev in it department",
+#     "create a jd for software developer role",
+#     "generate jd for backend developer",
 
-    "i want to hire a react developer",
-    "we are looking for a backend engineer",
+#     "i want to hire a react developer",
+#     "we are looking for a backend engineer",
 
-    "raise a hiring request",
-    "create manpower requirement",
-    "open a requisition",
+#     "raise a hiring request",
+#     "create manpower requirement",
+#     "open a requisition",
 
-    "need jd",
-    "jd creation",
-    # "start jd process",
-    # "start jd creation",
+#     "need jd",
+#     "jd creation",
+#     # "start jd process",
+#     # "start jd creation",
 
-    "crt jd",
-    "create jdd",
-    "genrate jd"
-]
+#     "crt jd",
+#     "create jdd",
+#     "genrate jd"
+# ]
 
-# ----------------------------------------------------
-# JD FETCH EXAMPLES
-# ----------------------------------------------------
+# # ----------------------------------------------------
+# # JD FETCH EXAMPLES
+# # ----------------------------------------------------
 
-JD_FETCH_EXAMPLES = [
+# JD_FETCH_EXAMPLES = [
 
-    "fetch jd",
-    "get jd",
-    "show jd",
-    "retrieve jd",
-    "find jd",
-    "search jd",
+#     "fetch jd",
+#     "get jd",
+#     "show jd",
+#     "retrieve jd",
+#     "find jd",
+#     "search jd",
 
-    "show me the jd",
-    "get the job description",
-    "retrieve job description",
+#     "show me the jd",
+#     "get the job description",
+#     "retrieve job description",
 
-    "show open jd",
-    "find hiring requirement",
-    "retrieve hiring document",
+#     "show open jd",
+#     "find hiring requirement",
+#     "retrieve hiring document",
 
-    "fetch jd for react developer",
-    "show jd for backend engineer",
-    "find jd for python developer",
+#     "fetch jd for react developer",
+#     "show jd for backend engineer",
+#     "find jd for python developer",
 
-    "can you show the jd",
-    "i want to see the job description",
+#     "can you show the jd",
+#     "i want to see the job description",
 
-    "get all jd",
-    "list all jd",
-    "show all job descriptions",
+#     "get all jd",
+#     "list all jd",
+#     "show all job descriptions",
 
-    "show jd from it department",
-    "find jd for senior developer",
+#     "show jd from it department",
+#     "find jd for senior developer",
 
-    "jd fetch",
-    "fetch job desc",
+#     "jd fetch",
+#     "fetch job desc",
 
-    "ftech jd",
-    "fetsh jd",
+#     "ftech jd",
+#     "fetsh jd",
 
-    # Edit JD should map to fetch (retrieve existing JD first)
-    "edit jd",
-    "edit the jd",
-    "edit job description",
-    "update jd",
-    "update the jd",
-    "modify jd",
-    "modify job description",
-    "revise jd",
-    "change jd",
-    "change job description",
+#     # Edit JD should map to fetch (retrieve existing JD first)
+#     "edit jd",
+#     "edit the jd",
+#     "edit job description",
+#     "update jd",
+#     "update the jd",
+#     "modify jd",
+#     "modify job description",
+#     "revise jd",
+#     "change jd",
+#     "change job description",
 
-    # Edit/update existing JD with role/department qualifiers
-    "edit jd for react developer",
-    "edit the jd for react developer",
-    "update jd for react developer",
-    "modify jd for react developer",
+#     # Edit/update existing JD with role/department qualifiers
+#     "edit jd for react developer",
+#     "edit the jd for react developer",
+#     "update jd for react developer",
+#     "modify jd for react developer",
 
-    "edit jd for backend engineer",
-    "update jd for software engineer",
-    "revise jd for python developer",
-    "change job description for java developer",
+#     "edit jd for backend engineer",
+#     "update jd for software engineer",
+#     "revise jd for python developer",
+#     "change job description for java developer",
 
-    "edit jd for senior developer",
-    "update jd for lead engineer",
-    "modify job description for frontend developer",
+#     "edit jd for senior developer",
+#     "update jd for lead engineer",
+#     "modify job description for frontend developer",
 
-    "edit jd from it department",
-    "update jd for react developer in it department",
-    "modify job description for backend engineer in engineering department",
-    "revise jd for software developer role",
-    "change jd for backend developer"
-]
+#     "edit jd from it department",
+#     "update jd for react developer in it department",
+#     "modify job description for backend engineer in engineering department",
+#     "revise jd for software developer role",
+#     "change jd for backend developer"
+# ]
 
-# ----------------------------------------------------
-# AMBIGUOUS / MENU EXAMPLES
-# ----------------------------------------------------
+# # ----------------------------------------------------
+# # AMBIGUOUS / MENU EXAMPLES
+# # ----------------------------------------------------
 
-UNKOWN_INTENT_EXAMPLES = [
-    # Generic start/begin prompts (no create vs fetch)
-    "start jd",
-    "start jd process",
-    "start job description",
-    "start job description process",
-    "start jd workflow",
-    "start jd flow",
-    "begin jd process",
-    "open jd process",
-    "launch jd process",
-    "init jd process",
-    "initialize jd process",
+# UNKOWN_INTENT_EXAMPLES = [
+#     # Generic start/begin prompts (no create vs fetch)
+#     "start jd",
+#     "start jd process",
+#     "start job description",
+#     "start job description process",
+#     "start jd workflow",
+#     "start jd flow",
+#     "begin jd process",
+#     "open jd process",
+#     "launch jd process",
+#     "init jd process",
+#     "initialize jd process",
 
-    # Menu/help style prompts
-    "jd menu",
-    "show jd menu",
-    "open jd menu",
-    "jd options",
-    "jd actions",
-    "help jd",
-    "jd help",
-    "what can i do with jd",
-    "what can i do in jd",
-    "how to use jd",
+#     # Menu/help style prompts
+#     "jd menu",
+#     "show jd menu",
+#     "open jd menu",
+#     "jd options",
+#     "jd actions",
+#     "help jd",
+#     "jd help",
+#     "what can i do with jd",
+#     "what can i do in jd",
+#     "how to use jd",
 
-    # Ambiguous "work on jd" prompts
-    "jd process",
-    "jd workflow",
-    "job description workflow",
-    "job description process",
-    "jd flow",
-    "i want to do jd",
-    "i need jd",
-    "i need job description",
-    "jd",
-    "job description",
+#     # Ambiguous "work on jd" prompts
+#     "jd process",
+#     "jd workflow",
+#     "job description workflow",
+#     "job description process",
+#     "jd flow",
+#     "i want to do jd",
+#     "i need jd",
+#     "i need job description",
+#     "jd",
+#     "job description",
 
-    # Ambiguous fetch/create process wording
-    "start fetch jd process",
-    "start fetching jd process",
-    "start fetching jd",
-    "start jd fetch process",
-    "start create jd process",
-    "start creating jd process",
-    "start creating jd",
-]
+#     # Ambiguous fetch/create process wording
+#     "start fetch jd process",
+#     "start fetching jd process",
+#     "start fetching jd",
+#     "start jd fetch process",
+#     "start create jd process",
+#     "start creating jd process",
+#     "start creating jd",
+# ]
 
 # ----------------------------------------------------
 # INTENT DATASET
 # ----------------------------------------------------
 
+intent_service = IntentDatasetService()
 INTENT_DATASET = {
-    "JD_CREATE": JD_CREATE_EXAMPLES,
-    "JD_FETCH": JD_FETCH_EXAMPLES,
-    "UNKOWN_INTENT": UNKOWN_INTENT_EXAMPLES,
+    "JD_CREATE":  intent_service.get_examples(
+        "JD_CREATE"
+    ),
+    "JD_FETCH":  intent_service.get_examples(
+        "JD_FETCH"
+    ),
+    "UNKNOWN_INTENT":  intent_service.get_examples(
+        "UNKNOWN_INTENT"
+    )
 }
 
 # ----------------------------------------------------

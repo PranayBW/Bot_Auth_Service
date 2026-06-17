@@ -20,6 +20,7 @@ from auth_service.ai.intent_classifier import (
 )
 
 # from auth_service.security.i_gaurdrails import capability_guardrail
+from auth_service.services.gaurdrail_factory import get_guardrail_service
 from auth_service.services.permission_service import (
     get_permissions
 )
@@ -55,6 +56,20 @@ from auth_service.memory.store import (
 )
 from auth_service.services.mcp_proxy import (
     get_semantic_jd_suggestion,
+)
+
+from auth_service.services.capability_service import (
+    CapabilityService
+)
+
+from auth_service.services.gaurdrail_service import (
+    GuardrailService
+)
+
+capability_service = CapabilityService()
+
+gaurdrail_service = GuardrailService(
+    capability_service
 )
 
 
@@ -103,6 +118,49 @@ async def authorize_intent(
         # Skip all token/header validation for local testing
         # (Optionally you can still sanity-check req.userId here)
         print(req)
+        org_id = 1
+        gaurdrail_service = (get_guardrail_service())
+
+        guardrail_result = (
+            await gaurdrail_service
+            .discover_capability(
+                query=req.text,
+                org_id=org_id
+            )
+        )
+
+        print("GUARDRAIL RESULT =", guardrail_result)
+
+        if (
+            guardrail_result.classification
+            != "ALLOWED"
+        ):
+
+            return {
+
+                "allowed": False,
+
+                "classification":
+                    guardrail_result.classification,
+
+                "capability":
+                    guardrail_result.capability,
+
+                "message":
+                    (
+                        "I can help with the following capabilities."
+                    ),
+
+                # "available_capabilities":
+                #     guardrail_result
+                #     .available_capabilities
+            }
+
+        print(
+            "GUARDRAIL RESULT:",
+            guardrail_result
+        )
+
         intent = detect_intent(req.text)
         
         print("DETECTED INTENT:", intent)
